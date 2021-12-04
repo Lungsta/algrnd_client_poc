@@ -19,6 +19,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,7 @@ public class AssetTransfer {
 
     static {
         try {
+            kmd = getKmdApi();
             WALLET_HANDLE = getDefaultWalletHandle();
             ACCOUNTS = getWalletAccounts(WALLET_HANDLE);
         } catch (ApiException | NoSuchAlgorithmException e) {
@@ -54,12 +56,6 @@ public class AssetTransfer {
         client = connectToNetwork();
         //IndexerClient indexer = new IndexerClient(ALGOD_API_ADDR, INDEX_PORT);
 
-        // Initialize KMD v1 client
-        KmdClient kmdClient = new KmdClient();
-        kmdClient.setBasePath(KMD_API_ADDR+":"+KMD_PORT);
-        kmdClient.setApiKey(TOKEN);
-        kmd = new KmdApi(kmdClient);
-
         byte[] privateKey = lookupPrivateKey(ACCOUNTS.get(0), WALLET_HANDLE);
         Account account = new Account(privateKey);
 
@@ -68,17 +64,35 @@ public class AssetTransfer {
 
         Long assetId = getFirstCreatedAsset(account);
 
-        Transaction tx = createOptinTransaction(assetId);
-        SignedTransaction stx = signTransactionWithKMD(tx, WALLET_HANDLE);
+        /*Transaction optinTx = createOptinTransaction(assetId);
+        SignedTransaction stx = signTransactionWithKMD(optinTx, WALLET_HANDLE);
 
         String transactionId = submitTransaction(stx);
         System.out.println("Transaction ID: " + transactionId);
 
-        waitForConfirmation(transactionId);
+        waitForConfirmation(transactionId);*/
+
+        Transaction transferTx = createTransferTransferTransaction(assetId);
+        SignedTransaction stx2 = signTransactionWithKMD(transferTx, WALLET_HANDLE);
+        //SignedTransaction stx2 = account2.signTransaction(transferTx);
+
+        //TODO: debug the line below.
+        String transactionId2 = submitTransaction(stx2);
+        System.out.println("Transfer Transaction ID: " + stx2.transactionID);
+
+        waitForConfirmation(transactionId2);
 
         printCreatedAsset(account, 1L);
         printAssetHolding(account2, 1L);
 
+    }
+
+    private static KmdApi getKmdApi() {
+        // Initialize KMD v1 client
+        KmdClient kmdClient = new KmdClient();
+        kmdClient.setBasePath(KMD_API_ADDR+":"+KMD_PORT);
+        kmdClient.setApiKey(TOKEN);
+        return new KmdApi(kmdClient);
     }
 
     private static AlgodClient connectToNetwork() throws Exception {
@@ -195,6 +209,27 @@ public class AssetTransfer {
         return tx;
     }
 
+    public static Transaction createTransferTransferTransaction(Long assetID) throws  Exception {
+
+        client = connectToNetwork();
+        TransactionParametersResponse params = client.TransactionParams().execute().body();
+        params.fee = (long) 100;
+
+        // set asset xfer specific parameters
+        BigInteger assetAmount = BigInteger.valueOf(1);
+        Address sender = ACCOUNTS.get(0);
+        Address receiver = ACCOUNTS.get(1);
+
+        System.out.println("assetID:" + assetID);
+        System.out.println("Sender: " + sender);
+        System.out.println("Receiver: "  + receiver);
+        Transaction tx = Transaction.AssetTransferTransactionBuilder().sender(sender).assetReceiver(receiver)
+                .assetAmount(assetAmount).assetIndex(assetID).suggestedParams(params).build();
+
+        return tx;
+    }
+
+
     public static SignedTransaction signTransactionWithKMD(Transaction tx, String walletHandle) throws IOException, ApiException {
         SignTransactionRequest req = new SignTransactionRequest();
         req.transaction(Encoder.encodeToMsgPack(tx));
@@ -246,6 +281,10 @@ public class AssetTransfer {
             String id = client.RawTransaction().rawtxn(encodedTxBytes).execute().body().txId;
             return (id);
         } catch (ApiException e) {
+            System.out.println("ApiException: " + e.getResponseBody());
+            throw (e);
+        } catch (Exception e) {
+            System.out.println("Exception: " + e.getMessage());
             throw (e);
         }
     }
